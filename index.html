@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Realistic AI Chat (ChatGPT Style)</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background-color: #343541; color: #ececf1; display: flex; flex-direction: column; height: 100vh; }
+        
+        /* Top Bar & Model Selector */
+        .top-bar { background-color: #202123; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #4d4d4f; }
+        .top-bar h2 { font-size: 18px; color: #fff; }
+        select { background-color: #40414f; color: white; border: 1px solid #565869; padding: 8px 12px; border-radius: 5px; font-size: 14px; cursor: pointer; outline: none; }
+
+        /* Chat Container */
+        .chat-container { flex: 1; overflow-y: auto; padding: 20px 0; display: flex; flex-direction: column; }
+        .message-row { width: 100%; padding: 24px 20%; display: flex; gap: 20px; }
+        .user-row { background-color: #343541; }
+        .ai-row { background-color: #444654; border-top: 1px solid #4d4d4f; border-bottom: 1px solid #4d4d4f; }
+        
+        .avatar { width: 30px; height: 30px; border-radius: 2px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; }
+        .user-avatar { background-color: #5436da; color: white; }
+        .ai-avatar { background-color: #10a37f; color: white; }
+        
+        .text { flex: 1; font-size: 16px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+
+        /* Input Area */
+        .input-area { background-color: #343541; padding: 20px 20%; background-image: linear-gradient(180deg,rgba(53,55,64,0),#353740 50%); }
+        .input-box-wrapper { position: relative; background-color: #40414f; border-radius: 8px; box-shadow: 0 0 15px rgba(0,0,0,0.10); border: 1px solid #565869; display: flex; align-items: center; padding: 10px; }
+        textarea { flex: 1; background: transparent; border: none; color: white; resize: none; height: 24px; max-height: 200px; font-size: 16px; outline: none; padding-right: 40px; }
+        
+        button { position: absolute; right: 12px; bottom: 10px; background-color: #10a37f; color: white; border: none; padding: 6px 10px; border-radius: 5px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s; }
+        button:disabled { background-color: transparent; color: #4d4d4f; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+
+    <div class="top-bar">
+        <h2>AI Assistant</h2>
+        <div>
+            <label for="modelSelect">मॉडल चुनें: </label>
+            <select id="modelSelect">
+                <option value="meta-llama/llama-3-8b-instruct:free">Llama 3 8B (Free)</option>
+                <option value="microsoft/phi-3-mini-128k-instruct:free">Phi 3 Mini (Free)</option>
+                <option value="google/gemma-2-9b-it:free">Gemma 2 9B (Free)</option>
+                <option value="openai/gpt-3.5-turbo">GPT-3.5 Turbo (Paid)</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="chat-container" id="chatContainer">
+        <div class="message-row ai-row">
+            <div class="avatar ai-avatar">AI</div>
+            <div class="text">नमस्ते! मैं आपका AI असिस्टेंट हूँ। आज मैं आपकी क्या मदद कर सकता हूँ?</div>
+        </div>
+    </div>
+
+    <div class="input-area">
+        <div class="input-box-wrapper">
+            <textarea id="userInput" placeholder="यहाँ अपना मैसेज लिखें..." rows="1" oninput="autoGrow(this)"></textarea>
+            <button id="sendBtn" onclick="sendMessage()" disabled>➔</button>
+        </div>
+    </div>
+
+    <script>
+        // 2. यहाँ अपनी OpenRouter API Key डालें (बिना किसी स्पेस के)
+        const OPENROUTER_API_KEY = "AlzaSyAf8Kjv6PlBVNPGzU3R7HAKfqa1ZP3PZxw"; 
+        
+        const chatContainer = document.getElementById('chatContainer');
+        const userInput = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const modelSelect = document.getElementById('modelSelect');
+
+        // इनपुट बॉक्स में कुछ टाइप होने पर सेंड बटन चालू करना
+        userInput.addEventListener('input', () => {
+            sendBtn.disabled = userInput.value.trim() === "";
+        });
+
+        // एंटर दबाने पर मैसेज भेजना (Shift+Enter पर न्यू लाइन)
+        userInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        function autoGrow(element) {
+            element.style.height = "5px";
+            element.style.height = (element.scrollHeight - 16) + "px";
+        }
+
+        async function sendMessage() {
+            const text = userInput.value.trim();
+            if (!text) return;
+
+            // यूजर का मैसेज स्क्रीन पर दिखाएँ
+            appendMessage(text, 'user');
+            userInput.value = "";
+            sendBtn.disabled = true;
+            userInput.style.height = "24px";
+
+            // AI के लिए लोडिंग मैसेज (Realistic Typing Effect के लिए)
+            const aiMessageId = appendMessage("सोच रहा हूँ...", 'ai-loading');
+
+            const selectedModel = modelSelect.value;
+
+            try {
+                const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${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}`,
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": window.location.href, // रेंडर पर लाइव होने के बाद यह अपने आप यूआरएल ले लेगा
+                        "X-Title": "My AI Assistant"
+                    },
+                    body: JSON.stringify({
+                        "model": selectedModel,
+                        "messages": [
+                            {"role": "user", "content": text}
+                        ]
+                    })
+                });
+
+                const data = await response.json();
+                
+                // लोडिंग टेक्स्ट को हटाकर असली जवाब दिखाना
+                const aiMessageDiv = document.getElementById(aiMessageId);
+                if (data.choices && data.choices[0]) {
+                    aiMessageDiv.innerText = data.choices[0].message.content;
+                } else {
+                    aiMessageDiv.innerText = "माफ़ कीजिये, इस मॉडल से जवाब नहीं मिल पाया। कृपया दूसरा मॉडल चुनकर प्रयास करें।";
+                    aiMessageDiv.style.color = "red";
+                }
+
+            } catch (error) {
+                console.error(error);
+                const aiMessageDiv = document.getElementById(aiMessageId);
+                aiMessageDiv.innerText = "सर्वर से कनेक्ट करने में खराबी आई। कृपया इंटरनेट चेक करें।";
+                aiMessageDiv.style.color = "red";
+            }
+
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function appendMessage(text, sender) {
+            const id = 'msg-' + Date.now();
+            const rowDiv = document.createElement('div');
+            rowDiv.className = `message-row ${sender === 'user' ? 'user-row' : 'ai-row'}`;
+            
+            rowDiv.innerHTML = `
+                <div class="avatar ${sender === 'user' ? 'user-avatar' : 'ai-avatar'}">${sender === 'user' ? 'U' : 'AI'}</div>
+                <div class="text" id="${id}">${text}</div>
+            `;
+            
+            chatContainer.appendChild(rowDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            return id;
+        }
+    </script>
+</body>
+</html>
