@@ -3,4 +3,4 @@ services:
     name: ai-chat-app
     env: static
     buildCommand: ""
-    publishDir: "."
+    staticpublishpath: "."
